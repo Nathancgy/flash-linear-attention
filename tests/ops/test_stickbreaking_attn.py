@@ -3,7 +3,7 @@ import math
 import pytest
 import torch
 
-from fla.ops import naive_stickbreaking_attn, parallel_stickbreaking_attn
+from fla.ops.stickbreaking_attn import naive_stickbreaking_attn, parallel_stickbreaking_attn
 from fla.utils import assert_close, device, is_intel_alchemist
 
 
