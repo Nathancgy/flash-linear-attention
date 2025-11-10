@@ -72,7 +72,6 @@ class StickBreakingAttention(nn.Module):
         past_key_values: Cache | None = None,
         output_attentions: bool = False,
         use_cache: bool = False,
-        attend_current: bool = False,
         **kwargs,
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         if attention_mask is not None:
@@ -101,7 +100,6 @@ class StickBreakingAttention(nn.Module):
             q=q,
             k=k,
             v=v,
-            attend_current=attend_current,
             cu_seqlens=cu_seqlens,
         )
         o = o.reshape(batch_size, q_len, -1)

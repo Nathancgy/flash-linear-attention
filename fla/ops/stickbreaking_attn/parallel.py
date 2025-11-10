@@ -28,7 +28,6 @@ def stickbreaking_attn_fwd_kernel(
     CU_ptr,
     CI_ptr,
     scale: tl.constexpr,
-    attend_current: tl.constexpr,
     batch_size,
     token_size,
     head_size: tl.constexpr,
@@ -58,7 +57,7 @@ def stickbreaking_attn_fwd_kernel(
         eos = tl.load(CU_ptr + i_n + 1).to(tl.int32)
         seq_length = eos - bos
     else:
-        bos = 0
+        bos = tl.full([], 0, dtype=tl.int32)
         seq_block_id = prog_id
         seq_length = token_size
     qk_scale = inv_log2 * scale
@@ -105,7 +104,6 @@ def stickbreaking_attn_fwd_kernel(
         no_grad,
         acc_dtype,
         False,
-        attend_current=attend_current,
         is_compiling=is_compiling,
     )
 
@@ -138,7 +136,6 @@ def stickbreaking_attn_fwd_one_row_kernel(
     no_grad: tl.constexpr = False,
     acc_dtype: tl.constexpr = tl.float32,
     return_attention: tl.constexpr = False,
-    attend_current: tl.constexpr = False,
     is_compiling: tl.constexpr = False,
 ):
     block_start_offset = BLOCK_M * seq_block_id
@@ -201,7 +198,6 @@ def stickbreaking_attn_fwd_one_row_kernel(
             on_band,
             ALLOW_TF32,
             backward=False,
-            attend_current=attend_current,
             is_compiling=is_compiling,
             use_cumsum=False,
         )
@@ -252,7 +248,6 @@ def stickbreaking_attn_bwd_kernel(
     BLOCK_N: tl.constexpr,
     acc_dtype: tl.constexpr = tl.float32,
     is_compiling: tl.constexpr = False,
-    attend_current: tl.constexpr = False,
     IS_VARLEN: tl.constexpr = False,
 ):
     tl.static_assert(BLOCK_M % BLOCK_N == 0)
@@ -280,20 +275,24 @@ def stickbreaking_attn_bwd_kernel(
     head_id = head_pid
     seq_prog_id = seq_block_id
 
-    batch_offset = batch_id * token_size
-    DO_head_seq_ptr = DO_ptr + ((batch_offset + bos) * num_heads + head_id) * head_size
-    DR_head_seq_ptr = DR_ptr + ((batch_offset + bos) * num_heads + head_id)
-    A_head_seq_ptr = A_ptr + ((batch_offset + bos) * num_heads + head_id)
-    Q_head_seq_ptr = Q_ptr + ((batch_offset + bos) * num_heads + head_id) * head_size
-    K_head_seq_ptr = K_ptr + ((batch_offset + bos) * num_heads + head_id) * head_size
-    V_head_seq_ptr = V_ptr + ((batch_offset + bos) * num_heads + head_id) * head_size
-    DQ_head_seq_ptr = DQ_ptr + ((batch_offset + bos) * num_heads + head_id) * head_size
-    DK_head_seq_ptr = DK_ptr + (
-        seq_prog_id * batch_size * token_size * num_heads + (batch_offset + bos) * num_heads + head_id
-    ) * head_size
-    DV_head_seq_ptr = DV_ptr + (
-        seq_prog_id * batch_size * token_size * num_heads + (batch_offset + bos) * num_heads + head_id
-    ) * head_size
+    batch_id_i64 = batch_id.to(tl.int64)
+    head_id_i64 = head_id.to(tl.int64)
+    seq_prog_id_i64 = seq_prog_id.to(tl.int64)
+    bos_i64 = bos.to(tl.int64)
+
+    batch_offset = batch_id_i64 * token_size
+    head_offset = (batch_offset + bos_i64) * num_heads + head_id_i64
+    block_offset = seq_prog_id_i64 * batch_size * token_size * num_heads
+
+    DO_head_seq_ptr = DO_ptr + head_offset * head_size
+    DR_head_seq_ptr = DR_ptr + head_offset
+    A_head_seq_ptr = A_ptr + head_offset
+    Q_head_seq_ptr = Q_ptr + head_offset * head_size
+    K_head_seq_ptr = K_ptr + head_offset * head_size
+    V_head_seq_ptr = V_ptr + head_offset * head_size
+    DQ_head_seq_ptr = DQ_ptr + head_offset * head_size
+    DK_head_seq_ptr = DK_ptr + (block_offset + head_offset) * head_size
+    DV_head_seq_ptr = DV_ptr + (block_offset + head_offset) * head_size
 
     stickbreaking_attn_bwd_one_row_kernel(
         seq_prog_id,
@@ -325,7 +324,6 @@ def stickbreaking_attn_bwd_kernel(
         BLOCK_N,
         acc_dtype,
         is_compiling=is_compiling,
-        attend_current=attend_current,
     )
 
 
@@ -357,7 +355,6 @@ def compute_block(
     on_band: tl.constexpr,
     ALLOW_TF32: tl.constexpr,
     backward: tl.constexpr,
-    attend_current: tl.constexpr = False,
     use_cumsum: tl.constexpr = False,
     is_compiling: tl.constexpr = False,
 ):
@@ -365,10 +362,7 @@ def compute_block(
     log_om_beta = -softplus(qk, is_compiling=is_compiling)
 
     if on_band:
-        if attend_current:
-            block_mask = M_blk_idxs[:, None] >= N_blk_idxs[None, :]
-        else:
-            block_mask = M_blk_idxs[:, None] > N_blk_idxs[None, :]
+        block_mask = M_blk_idxs[:, None] > N_blk_idxs[None, :]
         log_om_beta = tl.where(block_mask, log_om_beta, 0.0)
         if backward:
             neg_log_acc -= tl.sum(log_om_beta, axis=1)
@@ -429,7 +423,6 @@ def stickbreaking_attn_bwd_one_row_kernel(
     BLOCK_N: tl.constexpr,
     acc_dtype: tl.constexpr = tl.float32,
     is_compiling: tl.constexpr = False,
-    attend_current: tl.constexpr = False,
 ):
     block_start_offset = BLOCK_M * seq_prog_id
     M_blk_idxs = block_start_offset + M_range
@@ -508,7 +501,6 @@ def stickbreaking_attn_bwd_one_row_kernel(
             cm,
             on_band,
             ALLOW_TF32,
-            attend_current=attend_current,
             backward=True,
             is_compiling=is_compiling,
         )
@@ -554,7 +546,6 @@ def stickbreaking_attn_fwd(
     k: torch.Tensor,
     v: torch.Tensor,
     scale: float,
-    attend_current: bool,
     cu_seqlens: torch.LongTensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -580,6 +571,12 @@ def stickbreaking_attn_fwd(
         grid = (1, num_heads, num_seq_blocks)
     BLOCK_D = triton.next_power_of_2(dim_size)
 
+    NO_M_MASK = (token_size % BLOCK_M) == 0
+    NO_N_MASK = (token_size % BLOCK_N) == 0
+    if cu_seqlens is not None:
+        NO_M_MASK = False
+        NO_N_MASK = False
+
     stickbreaking_attn_fwd_kernel[grid](
         q,
         k,
@@ -590,15 +587,14 @@ def stickbreaking_attn_fwd(
         CU_ptr=cu_seqlens if cu_seqlens is not None else q,
         CI_ptr=CI if CI is not None else q,
         scale=scale,
-        attend_current=attend_current,
         batch_size=batch_size,
         token_size=token_size,
         head_size=dim_size,
         num_heads=num_heads,
         BLOCK_D=BLOCK_D,
         NO_D_MASK=dim_size == BLOCK_D,
-        NO_M_MASK=(token_size % BLOCK_M) == 0,
-        NO_N_MASK=(token_size % BLOCK_N) == 0,
+        NO_M_MASK=NO_M_MASK,
+        NO_N_MASK=NO_N_MASK,
         ALLOW_TF32=ALLOW_TF32,
         inv_log2=inv_log2,
         BLOCK_M=BLOCK_M,
@@ -619,7 +615,6 @@ def stickbreaking_attn_bwd(
     v: torch.Tensor,
     neg_log_acc: torch.Tensor,
     scale: float,
-    attend_current: bool,
     cu_seqlens: torch.LongTensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     batch_size, token_size, num_heads, dim_size = q.size()
@@ -638,6 +633,13 @@ def stickbreaking_attn_bwd(
     dv = torch.zeros((M_count, batch_size, token_size, num_heads, dim_size), dtype=v.dtype, device=v.device)
 
     BLOCK_D = triton.next_power_of_2(dim_size)
+
+    NO_M_MASK = (token_size % BLOCK_M) == 0
+    NO_N_MASK = (token_size % BLOCK_N) == 0
+    if cu_seqlens is not None:
+        NO_M_MASK = False
+        NO_N_MASK = False
+
     stickbreaking_attn_bwd_kernel[grid](
         do,
         dr,
@@ -651,7 +653,6 @@ def stickbreaking_attn_bwd(
         CU_ptr=cu_seqlens if cu_seqlens is not None else q,
         CI_ptr=CI if CI is not None else q,
         scale=scale,
-        attend_current=attend_current,
         batch_size=batch_size,
         token_size=token_size,
         head_size=dim_size,
@@ -660,8 +661,8 @@ def stickbreaking_attn_bwd(
         BLOCK_N=BLOCK_N,
         BLOCK_D=BLOCK_D,
         NO_D_MASK=dim_size == BLOCK_D,
-        NO_M_MASK=(token_size % BLOCK_M) == 0,
-        NO_N_MASK=(token_size % BLOCK_N) == 0,
+        NO_M_MASK=NO_M_MASK,
+        NO_N_MASK=NO_N_MASK,
         ALLOW_TF32=ALLOW_TF32,
         inv_log2=inv_log2,
         acc_dtype=tl.float32,
@@ -683,21 +684,19 @@ class StickBreakingAttentionFunction(torch.autograd.Function):
         k: torch.Tensor,
         v: torch.Tensor,
         scale: float,
-        attend_current: bool = False,
         cu_seqlens: torch.LongTensor | None = None,
     ):
-        o, rem, neg_log_acc = stickbreaking_attn_fwd(q, k, v, scale, attend_current, cu_seqlens)
+        o, rem, neg_log_acc = stickbreaking_attn_fwd(q, k, v, scale, cu_seqlens)
         ctx.save_for_backward(q, k, v, neg_log_acc)
         ctx.scale = scale
-        ctx.attend_current = attend_current
         ctx.cu_seqlens = cu_seqlens
         return o, rem
 
     @staticmethod
     def backward(ctx, do: torch.Tensor, drem: torch.Tensor):
         q, k, v, neg_log_acc = ctx.saved_tensors
-        dq, dk, dv = stickbreaking_attn_bwd(do, drem, q, k, v, neg_log_acc, ctx.scale, ctx.attend_current, ctx.cu_seqlens)
-        return dq, dk, dv, None, None, None
+        dq, dk, dv = stickbreaking_attn_bwd(do, drem, q, k, v, neg_log_acc, ctx.scale, ctx.cu_seqlens)
+        return dq, dk, dv, None, None
 
 
 def parallel_stickbreaking_attn(
@@ -705,12 +704,11 @@ def parallel_stickbreaking_attn(
     k: torch.Tensor,
     v: torch.Tensor,
     scale: float | None = None,
-    attend_current: bool = False,
     cu_seqlens: torch.LongTensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if scale is None:
         scale = q.shape[-1] ** -0.5
-    return StickBreakingAttentionFunction.apply(q, k, v, scale, attend_current, cu_seqlens)
+    return StickBreakingAttentionFunction.apply(q, k, v, scale, cu_seqlens)
 
 
 __all__ = [

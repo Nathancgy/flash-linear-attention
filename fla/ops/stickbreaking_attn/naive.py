@@ -9,7 +9,6 @@ def naive_stickbreaking_attn(
     k: torch.Tensor,
     v: torch.Tensor,
     scale: float | None = None,
-    attend_current: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Naive stick-breaking attention reference implementation.
@@ -17,8 +16,6 @@ def naive_stickbreaking_attn(
     Args:
         q, k, v: [B, T, H, D]
         scale: inverse temperature (1/sqrt(D))
-        attend_current: include diagonal when computing weights
-
     Returns:
         o: [B, T, H, D]
         rem: [B, T, H] (1 - sum of attention up to t)
@@ -31,10 +28,7 @@ def naive_stickbreaking_attn(
     logits = torch.einsum('bthd,bshd->bhts', q, k) * scale
     logits = logits.float()
 
-    if attend_current:
-        mask = torch.ones(T, T, device=q.device).triu(1).bool()  # exclude diagonal
-    else:
-        mask = torch.ones(T, T, device=q.device).triu(0).bool()  # include diagonal
+    mask = torch.ones(T, T, device=q.device).triu(0).bool()  # exclude diagonal
     mask = mask.unsqueeze(0).unsqueeze(0)  # [1, 1, T, T]
 
     log_z = F.logsigmoid(logits).masked_fill(mask, -1e5).to(orig_dtype)
