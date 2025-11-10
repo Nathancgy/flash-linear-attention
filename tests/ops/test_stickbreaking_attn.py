@@ -37,10 +37,10 @@ def test_stickbreaking_attn(
     do = torch.randn((B, T, H, D), dtype=dtype, device=device)
     dr = torch.randn((B, T, H), dtype=dtype, device=device)
 
-    inv_temp = 1.0 / math.sqrt(D)
+    scale = 1.0 / math.sqrt(D)
 
     # Reference (naive)
-    ref_o, ref_rem = naive_stickbreaking_attn(q, k, v, inv_temp, attend_current=False)
+    ref_o, ref_rem = naive_stickbreaking_attn(q, k, v, scale, attend_current=False)
     (ref_o * do).sum().backward(retain_graph=True)
     (ref_rem * dr).sum().backward()
     ref_dq, q.grad = q.grad.clone(), None
@@ -48,7 +48,7 @@ def test_stickbreaking_attn(
     ref_dv, v.grad = v.grad.clone(), None
 
     # Triton fused
-    tri_o, tri_rem = parallel_stickbreaking_attn(q, k, v, inv_temp=inv_temp, attend_current=False)
+    tri_o, tri_rem = parallel_stickbreaking_attn(q, k, v, scale=scale, attend_current=False)
     (tri_o * do).sum().backward(retain_graph=True)
     (tri_rem * dr).sum().backward()
     tri_dq, q.grad = q.grad.clone(), None
