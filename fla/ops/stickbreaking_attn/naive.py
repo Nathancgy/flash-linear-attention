@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Tuple
 
 import torch
 
@@ -17,8 +15,8 @@ def sb_attn_naive(
     k: torch.Tensor,
     v: torch.Tensor,
     inv_temp: float,
-    attend_current: bool = False
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    attend_current: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Naive stick-breaking attention reference implementation.
 

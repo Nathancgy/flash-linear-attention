@@ -34,7 +34,7 @@ from fla.models.samba import SambaConfig, SambaForCausalLM, SambaModel
 from fla.models.stickbreaking_attn import (
     StickBreakingAttentionConfig,
     StickBreakingAttentionForCausalLM,
-    StickBreakingAttentionModel
+    StickBreakingAttentionModel,
 )
 from fla.models.transformer import TransformerConfig, TransformerForCausalLM, TransformerModel
 

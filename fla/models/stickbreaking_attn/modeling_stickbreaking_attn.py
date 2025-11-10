@@ -1,26 +1,21 @@
-# -*- coding: utf-8 -*-
-
 from __future__ import annotations
 
 import math
 import warnings
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.nn as nn
-from transformers.modeling_outputs import (BaseModelOutputWithPast,
-                                           CausalLMOutputWithPast)
+from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import logging
 from transformers.utils.deprecation import deprecate_kwarg
 
 from fla.layers.stickbreaking_attn import StickBreakingAttention
-from fla.models.stickbreaking_attn.configuration_stickbreaking_attn import \
-    StickBreakingAttentionConfig
+from fla.models.stickbreaking_attn.configuration_stickbreaking_attn import StickBreakingAttentionConfig
 from fla.models.utils import Cache, FLAGenerationMixin
-from fla.modules import FusedCrossEntropyLoss, FusedLinearCrossEntropyLoss
+from fla.modules import FusedCrossEntropyLoss, FusedLinearCrossEntropyLoss, RMSNorm
 from fla.modules import GatedMLP as SBAttnMLP
-from fla.modules import RMSNorm
 from fla.modules.l2warp import l2_warp
 
 if TYPE_CHECKING:
@@ -52,7 +47,7 @@ class StickBreakingAttentionBlock(GradientCheckpointingLayer):
             qk_norm=config.qk_norm,
             window_size=config.window_size,
             max_position_embeddings=config.max_position_embeddings,
-            layer_idx=layer_idx
+            layer_idx=layer_idx,
         )
 
         self.mlp_norm = (RMSNorm if config.fuse_norm else nn.RMSNorm)(config.hidden_size, eps=config.norm_eps)
@@ -61,18 +56,18 @@ class StickBreakingAttentionBlock(GradientCheckpointingLayer):
             hidden_ratio=config.hidden_ratio,
             intermediate_size=config.intermediate_size,
             hidden_act=config.hidden_act,
-            fuse_swiglu=config.fuse_swiglu
+            fuse_swiglu=config.fuse_swiglu,
         )
 
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        past_key_values: Optional[Tuple[torch.Tensor]] = None,
-        output_attentions: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
-        **kwargs: Unpack[Any]
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        attention_mask: torch.Tensor | None = None,
+        past_key_values: tuple[torch.Tensor] | None = None,
+        output_attentions: bool | None = False,
+        use_cache: bool | None = False,
+        **kwargs: Unpack[Any],
+    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
 
         residual = hidden_states
         hidden_states = self.attn_norm(hidden_states)
@@ -82,7 +77,7 @@ class StickBreakingAttentionBlock(GradientCheckpointingLayer):
             past_key_values=past_key_values,
             use_cache=use_cache,
             output_attentions=output_attentions,
-            **kwargs
+            **kwargs,
         )
         if self.config.fuse_norm:
             hidden_states, residual = self.mlp_norm(hidden_states, residual, True)
@@ -146,7 +141,7 @@ class StickBreakingAttentionModel(StickBreakingAttentionPreTrainedModel):
 
     def __init__(
         self,
-        config: StickBreakingAttentionConfig
+        config: StickBreakingAttentionConfig,
     ) -> StickBreakingAttentionModel:
         super().__init__(config)
         self.padding_idx = config.pad_token_id
@@ -171,19 +166,19 @@ class StickBreakingAttentionModel(StickBreakingAttentionPreTrainedModel):
 
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        past_key_values: Optional[List[torch.FloatTensor]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        **kwargs: Unpack[Any]
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+        input_ids: torch.LongTensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        past_key_values: list[torch.FloatTensor] | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        **kwargs: Unpack[Any],
+    ) -> tuple | CausalLMOutputWithPast:
         if output_attentions:
             warnings.warn(
-                "`sba` does not support output attention weights now, so `output_attentions` is set to `False`."
+                "`sba` does not support output attention weights now, so `output_attentions` is set to `False`.",
             )
             output_attentions = False
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -218,7 +213,7 @@ class StickBreakingAttentionModel(StickBreakingAttentionPreTrainedModel):
                 past_key_values=past_key_values,
                 output_attentions=output_attentions,
                 use_cache=use_cache,
-                **kwargs
+                **kwargs,
             )
 
             hidden_states = layer_outputs[0]
@@ -241,7 +236,7 @@ class StickBreakingAttentionModel(StickBreakingAttentionPreTrainedModel):
             last_hidden_state=hidden_states,
             past_key_values=next_cache,
             hidden_states=all_hidden_states,
-            attentions=all_attns
+            attentions=all_attns,
         )
 
 
@@ -280,17 +275,17 @@ class StickBreakingAttentionForCausalLM(StickBreakingAttentionPreTrainedModel, F
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        logits_to_keep: Optional[int] = 0,
-        **kwargs: Unpack[Any]
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+        attention_mask: torch.Tensor | None = None,
+        past_key_values: Cache | list[torch.FloatTensor] | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        labels: torch.LongTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        logits_to_keep: int | None = 0,
+        **kwargs: Unpack[Any],
+    ) -> tuple | CausalLMOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -306,7 +301,7 @@ class StickBreakingAttentionForCausalLM(StickBreakingAttentionPreTrainedModel, F
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            **kwargs
+            **kwargs,
         )
 
         hidden_states = outputs[0]

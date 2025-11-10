@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import math
 
 import pytest
@@ -17,18 +15,18 @@ from fla.utils import assert_close, device, is_intel_alchemist
             (2, 64, 2, 64, torch.float32),
             (1, 128, 4, 64, torch.bfloat16),
         ]
-    ]
+    ],
 )
 @pytest.mark.skipif(
     is_intel_alchemist,
-    reason="Skipping test on Intel Alchemist due to known issues with SRAM."
+    reason="Skipping test on Intel Alchemist due to known issues with SRAM.",
 )
 def test_stickbreaking_attn(
     B: int,
     T: int,
     H: int,
     D: int,
-    dtype: torch.dtype
+    dtype: torch.dtype,
 ):
     torch.manual_seed(42)
 

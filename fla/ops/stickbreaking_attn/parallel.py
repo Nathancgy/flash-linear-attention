@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
 import math
-from typing import Tuple
 
 import torch
 import triton
@@ -558,7 +556,7 @@ def stickbreaking_attn_fwd(
     inv_temp: float,
     attend_current: bool,
     cu_seqlens: torch.LongTensor | None = None,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Run forward Triton kernel and return (o, rem, neg_log_acc).
 
@@ -598,7 +596,7 @@ def stickbreaking_attn_fwd(
         head_size=dim_size,
         num_heads=num_heads,
         BLOCK_D=BLOCK_D,
-        NO_D_MASK=BLOCK_D == dim_size,
+        NO_D_MASK=dim_size == BLOCK_D,
         NO_M_MASK=(token_size % BLOCK_M) == 0,
         NO_N_MASK=(token_size % BLOCK_N) == 0,
         ALLOW_TF32=ALLOW_TF32,
@@ -623,7 +621,7 @@ def stickbreaking_attn_bwd(
     inv_temp: float,
     attend_current: bool,
     cu_seqlens: torch.LongTensor | None = None,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     batch_size, token_size, num_heads, dim_size = q.size()
     BLOCK_M = 64
     BLOCK_N = 64
@@ -661,7 +659,7 @@ def stickbreaking_attn_bwd(
         BLOCK_M=BLOCK_M,
         BLOCK_N=BLOCK_N,
         BLOCK_D=BLOCK_D,
-        NO_D_MASK=BLOCK_D == dim_size,
+        NO_D_MASK=dim_size == BLOCK_D,
         NO_M_MASK=(token_size % BLOCK_M) == 0,
         NO_N_MASK=(token_size % BLOCK_N) == 0,
         ALLOW_TF32=ALLOW_TF32,
@@ -709,7 +707,7 @@ def sb_attn(
     inv_temp: float,
     attend_current: bool = False,
     cu_seqlens: torch.LongTensor | None = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     return StickBreakingAttentionFunction.apply(q, k, v, inv_temp, attend_current, cu_seqlens)
 
 

@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
 from __future__ import annotations
 
 import math
 import warnings
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
@@ -28,18 +27,18 @@ class StickBreakingAttention(nn.Module):
         self,
         hidden_size: int = 2048,
         num_heads: int = 32,
-        num_kv_heads: Optional[int] = None,
+        num_kv_heads: int | None = None,
         qkv_bias: bool = False,
         qk_norm: bool = False,
-        window_size: Optional[int] = None,
-        max_position_embeddings: Optional[int] = None,
+        window_size: int | None = None,
+        max_position_embeddings: int | None = None,
         layer_idx: int | None = None,
     ):
         super().__init__()
 
         if sb_attn is None:
             raise ImportError(
-                "StickBreakingAttention kernels are not available. Ensure Triton is installed and ops are importable."
+                "StickBreakingAttention kernels are not available. Ensure Triton is installed and ops are importable.",
             )
 
         self.hidden_size = hidden_size
@@ -70,13 +69,13 @@ class StickBreakingAttention(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Cache] = None,
+        attention_mask: torch.LongTensor | None = None,
+        past_key_values: Cache | None = None,
         output_attentions: bool = False,
         use_cache: bool = False,
         attend_current: bool = False,
         **kwargs,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         if attention_mask is not None:
             assert len(attention_mask.shape) == 2, (
                 "Expected attention_mask as a 0-1 matrix with shape [batch_size, seq_len] "
@@ -100,7 +99,7 @@ class StickBreakingAttention(nn.Module):
 
         inv_temp = 1.0 / math.sqrt(self.head_dim)
 
-        cu_seqlens = kwargs.get('cu_seqlens', None)
+        cu_seqlens = kwargs.get('cu_seqlens')
         o, _rem = sb_attn(q, k, v, inv_temp=inv_temp, attend_current=attend_current, cu_seqlens=cu_seqlens)
         o = o.reshape(batch_size, q_len, -1)
         o = self.o_proj(o)
