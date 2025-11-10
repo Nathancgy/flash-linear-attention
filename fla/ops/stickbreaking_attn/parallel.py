@@ -4,15 +4,11 @@ import torch
 import triton
 import triton.language as tl
 
+from fla.ops.stickbreaking_attn.softplus import softplus
 from fla.ops.utils.index import prepare_chunk_indices
 from fla.utils import autocast_custom_bwd, autocast_custom_fwd, contiguous
 
 ALLOW_TF32 = True
-
-
-@triton.jit
-def softplus(x, is_compiling: tl.constexpr = False):
-    return tl.where(x < 15.0, tl.math.log2(1 + tl.math.exp2(x)), x)
 
 
 @triton.jit
@@ -44,10 +40,9 @@ def compute_block(
     ALLOW_TF32: tl.constexpr,
     backward: tl.constexpr,
     use_cumsum: tl.constexpr = False,
-    is_compiling: tl.constexpr = False,
 ):
     qk = tl.dot(q, tl.trans(k), allow_tf32=ALLOW_TF32) * qk_scale
-    log_om_beta = -softplus(qk, is_compiling=is_compiling)
+    log_om_beta = -softplus(qk)
 
     if on_band:
         block_mask = M_blk_idxs[:, None] > N_blk_idxs[None, :]
@@ -103,7 +98,6 @@ def stickbreaking_attn_fwd_one_row_kernel(
     no_grad: tl.constexpr = False,
     acc_dtype: tl.constexpr = tl.float32,
     return_attention: tl.constexpr = False,
-    is_compiling: tl.constexpr = False,
 ):
     block_start_offset = BT * seq_block_id
     M_blk_idxs = block_start_offset + M_range
@@ -165,7 +159,6 @@ def stickbreaking_attn_fwd_one_row_kernel(
             on_band,
             ALLOW_TF32,
             backward=False,
-            is_compiling=is_compiling,
             use_cumsum=False,
         )
         acc = tl.dot(p.to(v.dtype), v, acc, allow_tf32=ALLOW_TF32)
@@ -212,7 +205,6 @@ def stickbreaking_attn_bwd_one_row_kernel(
     BT: tl.constexpr,
     BS: tl.constexpr,
     acc_dtype: tl.constexpr = tl.float32,
-    is_compiling: tl.constexpr = False,
 ):
     block_start_offset = BT * seq_prog_id
     M_blk_idxs = block_start_offset + M_range
@@ -292,7 +284,6 @@ def stickbreaking_attn_bwd_one_row_kernel(
             on_band,
             ALLOW_TF32,
             backward=True,
-            is_compiling=is_compiling,
         )
 
         if not NO_M_MASK:
@@ -363,7 +354,6 @@ def parallel_stickbreaking_attn_fwd_kernel(
     BS: tl.constexpr,
     no_grad: tl.constexpr = False,
     acc_dtype: tl.constexpr = tl.float32,
-    is_compiling: tl.constexpr = False,
     IS_VARLEN: tl.constexpr = False,
 ):
     tl.static_assert(BT % BS == 0)
@@ -427,7 +417,6 @@ def parallel_stickbreaking_attn_fwd_kernel(
         no_grad,
         acc_dtype,
         False,
-        is_compiling=is_compiling,
     )
 
 
@@ -465,7 +454,6 @@ def parallel_stickbreaking_attn_bwd_kernel(
     BT: tl.constexpr,
     BS: tl.constexpr,
     acc_dtype: tl.constexpr = tl.float32,
-    is_compiling: tl.constexpr = False,
     IS_VARLEN: tl.constexpr = False,
 ):
     tl.static_assert(BT % BS == 0)
@@ -543,7 +531,6 @@ def parallel_stickbreaking_attn_bwd_kernel(
         BT,
         BS,
         acc_dtype,
-        is_compiling=is_compiling,
     )
 
 
@@ -605,7 +592,6 @@ def parallel_stickbreaking_attn_fwd(
         BT=BT,
         BS=BS,
         no_grad=False,
-        is_compiling=False,
         IS_VARLEN=cu_seqlens is not None,
     )
 
@@ -670,7 +656,6 @@ def parallel_stickbreaking_attn_bwd(
         NO_N_MASK=NO_N_MASK,
         ALLOW_TF32=ALLOW_TF32,
         acc_dtype=tl.float32,
-        is_compiling=False,
         IS_VARLEN=cu_seqlens is not None,
     )
 
