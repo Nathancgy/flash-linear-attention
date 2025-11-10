@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 from fla.layers import (
     ABCAttention,
@@ -79,7 +78,7 @@ from fla.models import (
     StickBreakingAttentionForCausalLM,
     StickBreakingAttentionModel,
     TransformerForCausalLM,
-    TransformerModel
+    TransformerModel,
 )
 
 __all__ = [
@@ -112,4 +111,4 @@ __all__ = [
     'StickBreakingAttention', 'StickBreakingAttentionForCausalLM', 'StickBreakingAttentionModel',
 ]
 
-__version__ = '0.3.2'
+__version__ = '0.4.0'
