@@ -32,7 +32,6 @@ class StickBreakingAttention(nn.Module):
         qkv_bias: bool = False,
         qk_norm: bool = False,
         window_size: Optional[int] = None,
-        rope_theta: Optional[float] = None,  # sba doesn't use RoPE
         max_position_embeddings: Optional[int] = None,
         layer_idx: int | None = None,
     ):
@@ -56,7 +55,6 @@ class StickBreakingAttention(nn.Module):
         self.qk_norm = qk_norm
 
         self.window_size = window_size
-        self.rope_theta = rope_theta
         self.max_position_embeddings = max_position_embeddings
         self.layer_idx = layer_idx
 
@@ -107,6 +105,4 @@ class StickBreakingAttention(nn.Module):
         o = o.reshape(batch_size, q_len, -1)
         o = self.o_proj(o)
 
-        attentions = None
-
-        return o, attentions, past_key_values
+        return o, None, past_key_values

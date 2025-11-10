@@ -8,13 +8,15 @@ from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
+from transformers.modeling_outputs import (BaseModelOutputWithPast,
+                                           CausalLMOutputWithPast)
 from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import logging
 from transformers.utils.deprecation import deprecate_kwarg
 
 from fla.layers.stickbreaking_attn import StickBreakingAttention
-from fla.models.stickbreaking_attn.configuration_stickbreaking_attn import StickBreakingAttentionConfig
+from fla.models.stickbreaking_attn.configuration_stickbreaking_attn import \
+    StickBreakingAttentionConfig
 from fla.models.utils import Cache, FLAGenerationMixin
 from fla.modules import FusedCrossEntropyLoss, FusedLinearCrossEntropyLoss
 from fla.modules import GatedMLP as SBAttnMLP
@@ -49,7 +51,6 @@ class StickBreakingAttentionBlock(GradientCheckpointingLayer):
             qkv_bias=config.qkv_bias,
             qk_norm=config.qk_norm,
             window_size=config.window_size,
-            rope_theta=None,
             max_position_embeddings=config.max_position_embeddings,
             layer_idx=layer_idx
         )

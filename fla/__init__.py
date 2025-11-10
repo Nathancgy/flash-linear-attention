@@ -26,7 +26,7 @@ from fla.layers import (
     RodimusAttention,
     RWKV6Attention,
     RWKV7Attention,
-    StickBreakingAttention
+    StickBreakingAttention,
 )
 from fla.models import (
     ABCForCausalLM,
