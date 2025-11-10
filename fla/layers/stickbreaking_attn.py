@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import warnings
 from typing import TYPE_CHECKING
 
@@ -12,7 +11,7 @@ from einops import rearrange
 from transformers.utils import logging
 
 from fla.modules import RMSNorm
-from fla.ops.stickbreaking_attn import sb_attn
+from fla.ops.stickbreaking_attn import parallel_stickbreaking_attn
 
 if TYPE_CHECKING:
     from fla.models.utils import Cache
@@ -36,7 +35,7 @@ class StickBreakingAttention(nn.Module):
     ):
         super().__init__()
 
-        if sb_attn is None:
+        if parallel_stickbreaking_attn is None:
             raise ImportError(
                 "StickBreakingAttention kernels are not available. Ensure Triton is installed and ops are importable.",
             )
@@ -97,10 +96,14 @@ class StickBreakingAttention(nn.Module):
         if self.qk_norm:
             q, k = self.q_norm(q), self.k_norm(k)
 
-        inv_temp = 1.0 / math.sqrt(self.head_dim)
-
         cu_seqlens = kwargs.get('cu_seqlens')
-        o, _rem = sb_attn(q, k, v, inv_temp=inv_temp, attend_current=attend_current, cu_seqlens=cu_seqlens)
+        o, _rem = parallel_stickbreaking_attn(
+            q=q,
+            k=k,
+            v=v,
+            attend_current=attend_current,
+            cu_seqlens=cu_seqlens,
+        )
         o = o.reshape(batch_size, q_len, -1)
         o = self.o_proj(o)
 

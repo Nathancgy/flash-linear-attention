@@ -1,20 +1,14 @@
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-
 import torch
+import torch.nn.functional as F
 
 
-def _tril_mask(T: int, strict: bool = True, device=None) -> torch.Tensor:
-    i = torch.arange(T, device=device).view(1, 1, T, 1)
-    j = torch.arange(T, device=device).view(1, 1, 1, T)
-    return (j < i) if strict else (j <= i)
-
-
-def sb_attn_naive(
+def naive_stickbreaking_attn(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
-    inv_temp: float,
+    scale: float | None = None,
     attend_current: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -22,17 +16,19 @@ def sb_attn_naive(
 
     Args:
         q, k, v: [B, T, H, D]
-        inv_temp: inverse temperature (1/sqrt(D))
+        scale: inverse temperature (1/sqrt(D))
         attend_current: include diagonal when computing weights
 
     Returns:
         o: [B, T, H, D]
         rem: [B, T, H] (1 - sum of attention up to t)
     """
-    B, T, H, D = q.shape
+    _, T, _, D = q.shape
     orig_dtype = q.dtype
+    if scale is None:
+        scale = D ** -0.5
 
-    logits = torch.einsum('bthd,bshd->bhts', q, k) * inv_temp
+    logits = torch.einsum('bthd,bshd->bhts', q, k) * scale
     logits = logits.float()
 
     if attend_current:
@@ -41,8 +37,8 @@ def sb_attn_naive(
         mask = torch.ones(T, T, device=q.device).triu(0).bool()  # include diagonal
     mask = mask.unsqueeze(0).unsqueeze(0)  # [1, 1, T, T]
 
-    log_z = torch.nn.functional.logsigmoid(logits).masked_fill(mask, -1e5).to(orig_dtype)
-    log_beta = torch.nn.functional.logsigmoid(-logits).masked_fill(mask, 0).to(orig_dtype)
+    log_z = F.logsigmoid(logits).masked_fill(mask, -1e5).to(orig_dtype)
+    log_beta = F.logsigmoid(-logits).masked_fill(mask, 0).to(orig_dtype)
 
     cum_weight = torch.ones(T, T, device=q.device).tril(-1)
 
@@ -56,5 +52,5 @@ def sb_attn_naive(
 
 
 __all__ = [
-    'sb_attn_naive',
+    'naive_stickbreaking_attn',
 ]
